@@ -1,9 +1,9 @@
 name: Update Market Prices
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch:
 
 jobs:
   update-prices:
@@ -13,24 +13,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore previous prices cache
-        uses: actions/cache@v4
-        with:
-          path: previous_prices.json
-          key: previous-prices-${{ github.run_id }}
-          restore-keys: |
-            previous-prices-
-
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install requirements
         run: pip install -r requirements.txt
 
-      - name: Run price updater
+      - name: Run script
+        run: python main.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-        run: python main.py
