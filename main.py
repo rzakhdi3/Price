@@ -1,60 +1,75 @@
 import os
-import re
 import requests
+import re
 from datetime import datetime
 
-# تنظیمات تلگرام از سکرت‌های گیت‌هاب
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHANNEL_ID")
 
-def get_price(symbol):
-    """استخراج قیمت از ای‌پی‌آی‌های مستقیم سایت با هدرهای شبیه‌ساز مرورگر"""
-    urls = {
-        "dollar": "https://call1.tgju.org/ajax.json?rev=2&q=price_dollar_rl",
-        "gold": "https://call1.tgju.org/ajax.json?rev=2&q=geram18",
-        "silver": "https://call1.tgju.org/ajax.json?rev=2&q=silver",
-        "tether": "https://api.nobitex.ir/market/stats?src=usdt&dst=rls"
+def get_data():
+    results = {
+        "dollar": "دریافت نشد",
+        "tether": "دریافت نشد",
+        "gold": "دریافت نشد",
+        "silver": "دریافت نشد"
     }
     
+    # استفاده از هدرهای پیشرفته برای دور زدن ربات‌نمایی
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
+    # ۱. دریافت تتر (از منبع جایگزین برای اطمینان)
     try:
-        response = requests.get(urls[symbol], headers=headers, timeout=15)
-        data = response.json()
-        
-        if symbol == "tether":
-            # استخراج قیمت تتر از نوبیتکس (تبدیل ریال به تومان برای رند شدن)
-            price_raw = data['stats']['usdt-rls']['latest']
-            return f"{int(float(price_raw)/10):,}" # تبدیل به تومان
-        else:
-            # استخراج قیمت از TGJU و تبدیل ریال به تومان
-            price_raw = data['current']['p'].replace(',', '')
-            return f"{int(int(price_raw)/10):,}" # تبدیل به تومان
+        tether_resp = requests.get("https://api.coinbase.com/v2/prices/USDT-USD/spot", timeout=10).json()
+        # چون قیمت دلاری تتر نزدیک ۱ است، از نوبیتکس با متد جدید امتحان میکنیم
+        nobitex = requests.get("https://api.nobitex.ir/market/stats?src=usdt&dst=rls", headers=headers, timeout=10).json()
+        tether_val = int(float(nobitex['stats']['usdt-rls']['latest']) / 10)
+        results["tether"] = f"{tether_val:,}"
     except:
-        return "خطا در دریافت"
+        results["tether"] = "خطای سرور"
+
+    # ۲. دریافت سایر قیمت‌ها از TGJU با متد شبیه‌ساز مرورگر
+    keys = {
+        "dollar": "https://www.tgju.org/profile/price_dollar_rl",
+        "gold": "https://www.tgju.org/profile/geram18",
+        "silver": "https://www.tgju.org/profile/silver"
+    }
+
+    for key, url in keys.items():
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            # استخراج قیمت از داخل کدهای HTML صفحه (چون API بلاک میکند)
+            match = re.search(r'<span class="value">([\d,]+)</span>', response.text)
+            if match:
+                price_rial = match.group(1).replace(',', '')
+                price_toman = int(int(price_rial) / 10)
+                results[key] = f"{price_toman:,}"
+        except Exception as e:
+            print(f"Error fetching {key}: {e}")
+            results[key] = "عدم دسترسی"
+
+    return results
 
 def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"})
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
+    except:
+        pass
 
-# اجرای اصلی
 if __name__ == "__main__":
-    d = get_price("dollar")
-    t = get_price("tether")
-    g = get_price("gold")
-    s = get_price("silver")
-    
-    now = datetime.now().strftime("%Y/%m/%d, %H:%M:%S")
+    data = get_data()
+    now = datetime.now().strftime("%Y/%m/%d - %H:%M")
     
     message = f"""
 📈 <b>بروزرسانی بازار (تومان)</b>
 
-💵 دلار: <b>{d}</b>
-₮ تتر: <b>{t}</b>
-🥇 طلای 18 عیار: <b>{g}</b>
-🥈 نقره: <b>{s}</b>
+💵 دلار: <b>{data['dollar']}</b>
+₮ تتر: <b>{data['tether']}</b>
+🥇 طلای 18 عیار: <b>{data['gold']}</b>
+🥈 نقره: <b>{data['silver']}</b>
 
 🕒 {now}
     """
