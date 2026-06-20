@@ -1,21 +1,35 @@
-name: Update Prices
+name: Update Market Prices
+
 on:
   schedule:
-    - cron: '0 * * * *' # هر یک ساعت اجرا می‌شود
-  workflow_dispatch: # امکان اجرا دستی
+    - cron: "0 * * * *"
+  workflow_dispatch:
 
 jobs:
-  update:
+  update-prices:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore previous prices cache
+        uses: actions/cache@v4
         with:
-          python-version: '3.9'
+          path: previous_prices.json
+          key: previous-prices-${{ github.run_id }}
+          restore-keys: |
+            previous-prices-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run Script
+
+      - name: Run price updater
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
