@@ -9,6 +9,14 @@ CHAT_ID = os.getenv("CHANNEL_ID")
 PRICE_FILE = "previous_prices.json"
 
 
+def extract_price(html, key):
+    pattern = rf'data-market-names="{key}".*?data-last-price="([\d,]+)"'
+    m = re.search(pattern, html)
+    if m:
+        return m.group(1)
+    return None
+
+
 def get_prices():
     url = "https://www.tgju.org/"
     r = requests.get(url, timeout=20)
@@ -16,16 +24,17 @@ def get_prices():
 
     prices = {}
 
-    patterns = {
-        "dollar": r"price_dollar_rl.*?(\d[\d,]+)",
-        "gold18": r"price_geram18.*?(\d[\d,]+)",
-        "bitcoin": r"price_bitcoin.*?(\d[\d,]+)",
+    markets = {
+        "price_dollar_rl": "dollar",
+        "price_geram18": "gold18",
+        "price_bitcoin": "bitcoin",
+        "price_tether": "tether"
     }
 
-    for key, pattern in patterns.items():
-        m = re.search(pattern, html)
-        if m:
-            prices[key] = m.group(1)
+    for key, name in markets.items():
+        p = extract_price(html, key)
+        if p:
+            prices[name] = p
 
     return prices
 
@@ -44,40 +53,50 @@ def save_prices(prices):
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
     data = {
         "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML"
+        "text": text
     }
+
     requests.post(url, data=data)
 
 
 def build_message(new, old):
-    msg = "📊 بروزرسانی قیمت بازار\n\n"
-
     names = {
         "dollar": "💵 دلار",
         "gold18": "🥇 طلا ۱۸",
-        "bitcoin": "₿ بیتکوین"
+        "bitcoin": "₿ بیتکوین",
+        "tether": "💲 تتر"
     }
 
-    for k in new:
-        if k not in old:
-            msg += f"{names[k]} : {new[k]} 🆕\n"
-        else:
-            if new[k] != old[k]:
-                msg += f"{names[k]} : {new[k]} 🔄\n"
+    msg = "📊 بروزرسانی قیمت بازار\n\n"
+    changed = False
 
-    return msg
+    for k, v in new.items():
+
+        if k not in old:
+            msg += f"{names[k]} : {v} 🆕\n"
+            changed = True
+
+        elif old[k] != v:
+            msg += f"{names[k]} : {v} 🔄\n"
+            changed = True
+
+    if changed:
+        return msg
+
+    return None
 
 
 def main():
+
     new_prices = get_prices()
     old_prices = load_previous()
 
     message = build_message(new_prices, old_prices)
 
-    if message.strip() != "📊 بروزرسانی قیمت بازار":
+    if message:
         send_telegram(message)
 
     save_prices(new_prices)
