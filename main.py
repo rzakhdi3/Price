@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from datetime import datetime
 
@@ -8,94 +9,72 @@ CHAT_ID = os.environ.get("CHANNEL_ID")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/json,*/*",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
 URLS = {
-    "tgju_dollar_api": "https://call1.tgju.org/ajax.json?rev=2&q=price_dollar_rl",
-    "tgju_gold_api": "https://call1.tgju.org/ajax.json?rev=2&q=geram18",
-    "tgju_silver_api": "https://call1.tgju.org/ajax.json?rev=2&q=silver",
-    "tgju_dollar_page": "https://www.tgju.org/profile/price_dollar_rl",
-    "tgju_gold_page": "https://www.tgju.org/profile/geram18",
-    "tgju_silver_page": "https://www.tgju.org/profile/silver",
-    "nobitex": "https://api.nobitex.ir/market/stats?src=usdt&dst=rls",
+    "dollar": "https://www.tgju.org/profile/price_dollar_rl",
+    "gold": "https://www.tgju.org/profile/geram18",
+    "silver": "https://www.tgju.org/profile/silver",
 }
+
+PATTERNS = [
+    r'<span[^>]*class="value"[^>]*>([\d,]+)</span>',
+    r'"last_price":"?([\d,]+)"?',
+    r'"p":"?([\d,]+)"?',
+    r'"price":"?([\d,]+)"?',
+    r'>([\d,]{5,})<',
+]
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    resp = requests.post(url, data={"chat_id": CHAT_ID, "text": text}, timeout=20)
+    print("Telegram status:", resp.status_code)
+    print("Telegram response:", resp.text)
 
-    response = requests.post(
-        url,
-        data={
-            "chat_id": CHAT_ID,
-            "text": text,
-        },
-        timeout=20
-    )
-
-    print("Telegram status:", response.status_code)
-    print("Telegram response:", response.text)
-
-def detect_blocked(text):
-    lower = text.lower()
-
-    blocked_words = [
-        "forbidden",
-        "access denied",
-        "cloudflare",
-        "captcha",
-        "attention required",
-        "blocked",
-        "403",
-        "not available",
-    ]
-
-    for word in blocked_words:
-        if word in lower:
-            return True
-
-    return False
-
-def test_url(name, url):
+def inspect_page(name, url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=25)
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        text = r.text
 
-        content_type = r.headers.get("content-type", "unknown")
-        server = r.headers.get("server", "unknown")
-        length = len(r.text)
+        lines = [
+            f"{name}",
+            f"Status: {r.status_code}",
+            f"Length: {len(text)}",
+        ]
 
-        sample = r.text[:180]
-        sample = sample.replace("\n", " ").replace("\r", " ").strip()
+        found_any = False
+        for i, pattern in enumerate(PATTERNS, start=1):
+            matches = re.findall(pattern, text)
+            uniq = []
+            for m in matches:
+                if m not in uniq:
+                    uniq.append(m)
+            uniq = uniq[:5]
+            if uniq:
+                found_any = True
+                lines.append(f"Pattern {i}: {uniq}")
 
-        blocked = "YES" if detect_blocked(r.text) or r.status_code in [403, 429, 503] else "NO"
+        # چند کلمه کلیدی مهم را هم چک می‌کنیم
+        keywords = ["value", "price", "current", "last", "geram18", "price_dollar_rl", "silver"]
+        present = [k for k in keywords if k in text]
+        lines.append(f"Keywords: {present[:10]}")
 
-        return (
-            f"{name}\n"
-            f"Status: {r.status_code}\n"
-            f"Type: {content_type}\n"
-            f"Server: {server}\n"
-            f"Length: {length}\n"
-            f"Blocked: {blocked}\n"
-            f"Sample: {sample[:180]}\n"
-        )
+        if not found_any:
+            lines.append("No numeric matches found with current patterns")
+
+        return "\n".join(lines)
 
     except Exception as e:
-        return (
-            f"{name}\n"
-            f"ERROR: {repr(e)}\n"
-        )
+        return f"{name}\nERROR: {repr(e)}"
 
 if __name__ == "__main__":
     now = datetime.utcnow().strftime("%Y/%m/%d %H:%M:%S UTC")
-
-    report = f"Debug Price Sources\nTime: {now}\n\n"
+    report = [f"TGJU HTML Inspect\nTime: {now}\n"]
 
     for name, url in URLS.items():
-        report += test_url(name, url)
-        report += "\n----------------\n"
+        report.append(inspect_page(name, url))
+        report.append("-" * 20)
 
-    # برای جلوگیری از خطای طول پیام تلگرام
-    report = report[:3800]
-
-    send_telegram(report)
+    send_telegram("\n".join(report)[:3900])
