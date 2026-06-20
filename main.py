@@ -19,8 +19,6 @@ TGJU_URLS = {
     "silver": "https://www.tgju.org/profile/silver",
 }
 
-# چون نوبیتکس روی GitHub resolve نمی‌شود، برای تتر چند مسیر جایگزین تست می‌کنیم.
-# اگر هیچ‌کدام جواب نداد، تتر را برابر دلار آزاد می‌گذاریم.
 TETHER_URLS = [
     "https://www.tgju.org/profile/crypto-tether",
     "https://www.tgju.org/profile/tether",
@@ -30,9 +28,6 @@ TETHER_URLS = [
 
 
 def english_digits(text):
-    """
-    تبدیل اعداد فارسی/عربی به انگلیسی برای پردازش راحت‌تر
-    """
     if text is None:
         return ""
 
@@ -50,10 +45,8 @@ def english_digits(text):
 
 
 def to_persian_digits(text):
-    """
-    تبدیل اعداد انگلیسی به فارسی برای نمایش زیباتر در تلگرام
-    """
     text = str(text)
+
     en = "0123456789"
     fa = "۰۱۲۳۴۵۶۷۸۹"
 
@@ -64,12 +57,6 @@ def to_persian_digits(text):
 
 
 def extract_first_price_from_html(html):
-    """
-    طبق دیباگی که از GitHub گرفتی، عدد اول با الگوی زیر قیمت فعلی است.
-    مثال:
-    1,620,000
-    161,478,000
-    """
     html = english_digits(html)
 
     matches = re.findall(r'>([\d,]{5,})<', html)
@@ -85,7 +72,6 @@ def extract_first_price_from_html(html):
 
         value = int(clean)
 
-        # حذف عددهای خیلی کوچک یا بی‌ربط
         if value < 10000:
             continue
 
@@ -95,9 +81,6 @@ def extract_first_price_from_html(html):
 
 
 def get_tgju_price_rial(url):
-    """
-    دریافت قیمت ریالی از صفحه HTML سایت TGJU
-    """
     try:
         response = requests.get(url, headers=HEADERS, timeout=30)
 
@@ -117,9 +100,6 @@ def get_tgju_price_rial(url):
 
 
 def format_toman(price_rial):
-    """
-    تبدیل ریال به تومان و فرمت سه‌رقمی
-    """
     if price_rial is None:
         return "دریافت نشد"
 
@@ -129,42 +109,7 @@ def format_toman(price_rial):
 
 
 def get_tether_price_rial(dollar_rial=None):
-    """
-    تلاش برای دریافت تتر از صفحات احتمالی TGJU.
-    اگر نشد، چون نوبیتکس از GitHub قابل resolve نیست، تتر را تقریباً برابر دلار آزاد می‌گذاریم.
-    """
     for url in TETHER_URLS:
         price = get_tgju_price_rial(url)
 
         if price:
-            # فیلتر تقریبی برای جلوگیری از گرفتن عددهای پرت
-            # تتر/دلار معمولاً در محدوده چندصد هزار تا چند میلیون ریال است.
-            if 100000 <= price <= 5000000:
-                return price, False
-
-    # fallback
-    if dollar_rial:
-        return dollar_rial, True
-
-    return None, False
-
-
-def send_telegram(text):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-    response = requests.post(
-        url,
-        data={
-            "chat_id": CHAT_ID,
-            "text": text,
-        },
-        timeout=20
-    )
-
-    print("Telegram status:", response.status_code)
-    print("Telegram response:", response.text)
-
-
-def get_iran_time():
-    """
-    زمان ایران: UTC+3:30
