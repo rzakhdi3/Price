@@ -1,77 +1,85 @@
 import os
 import requests
-import re
 from datetime import datetime
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHANNEL_ID")
 
-def get_data():
-    results = {
-        "dollar": "دریافت نشد",
-        "tether": "دریافت نشد",
-        "gold": "دریافت نشد",
-        "silver": "دریافت نشد"
-    }
-    
-    # استفاده از هدرهای پیشرفته برای دور زدن ربات‌نمایی
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"
-    }
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
+    "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Connection": "keep-alive",
+}
 
-    # ۱. دریافت تتر (از منبع جایگزین برای اطمینان)
+URLS = {
+    "tgju_dollar_api": "https://call1.tgju.org/ajax.json?rev=2&q=price_dollar_rl",
+    "tgju_gold_api": "https://call1.tgju.org/ajax.json?rev=2&q=geram18",
+    "tgju_silver_api": "https://call1.tgju.org/ajax.json?rev=2&q=silver",
+    "tgju_dollar_page": "https://www.tgju.org/profile/price_dollar_rl",
+    "tgju_gold_page": "https://www.tgju.org/profile/geram18",
+    "tgju_silver_page": "https://www.tgju.org/profile/silver",
+    "nobitex": "https://api.nobitex.ir/market/stats?src=usdt&dst=rls",
+}
+
+def send_telegram(text):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    requests.post(
+        url,
+        data={
+            "chat_id": CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML"
+        },
+        timeout=20
+    )
+
+def short_text(text, limit=700):
+    if not text:
+        return ""
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
+    return text[:limit]
+
+def test_url(name, url):
     try:
-        tether_resp = requests.get("https://api.coinbase.com/v2/prices/USDT-USD/spot", timeout=10).json()
-        # چون قیمت دلاری تتر نزدیک ۱ است، از نوبیتکس با متد جدید امتحان میکنیم
-        nobitex = requests.get("https://api.nobitex.ir/market/stats?src=usdt&dst=rls", headers=headers, timeout=10).json()
-        tether_val = int(float(nobitex['stats']['usdt-rls']['latest']) / 10)
-        results["tether"] = f"{tether_val:,}"
-    except:
-        results["tether"] = "خطای سرور"
+        r = requests.get(url, headers=HEADERS, timeout=25)
 
-    # ۲. دریافت سایر قیمت‌ها از TGJU با متد شبیه‌ساز مرورگر
-    keys = {
-        "dollar": "https://www.tgju.org/profile/price_dollar_rl",
-        "gold": "https://www.tgju.org/profile/geram18",
-        "silver": "https://www.tgju.org/profile/silver"
-    }
+        content_type = r.headers.get("content-type", "unknown")
+        server = r.headers.get("server", "unknown")
 
-    for key, url in keys.items():
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            # استخراج قیمت از داخل کدهای HTML صفحه (چون API بلاک میکند)
-            match = re.search(r'<span class="value">([\d,]+)</span>', response.text)
-            if match:
-                price_rial = match.group(1).replace(',', '')
-                price_toman = int(int(price_rial) / 10)
-                results[key] = f"{price_toman:,}"
-        except Exception as e:
-            print(f"Error fetching {key}: {e}")
-            results[key] = "عدم دسترسی"
+        body_sample = short_text(r.text, 900)
 
-    return results
+        return f"""
+<b>{name}</b>
+URL: {url}
+Status: <b>{r.status_code}</b>
+Content-Type: {content_type}
+Server: {server}
+Length: {len(r.text)}
 
-def send_telegram(msg):
-    try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-    except:
-        pass
+First chars:
+<code>{body_sample}</code>
+"""
+    except Exception as e:
+        return f"""
+<b>{name}</b>
+URL: {url}
+ERROR:
+<code>{str(e)}</code>
+"""
 
 if __name__ == "__main__":
-    data = get_data()
-    now = datetime.now().strftime("%Y/%m/%d - %H:%M")
-    
-    message = f"""
-📈 <b>بروزرسانی بازار (تومان)</b>
+    now = datetime.utcnow().strftime("%Y/%m/%d %H:%M:%S UTC")
 
-💵 دلار: <b>{data['dollar']}</b>
-₮ تتر: <b>{data['tether']}</b>
-🥇 طلای 18 عیار: <b>{data['gold']}</b>
-🥈 نقره: <b>{data['silver']}</b>
+    parts = [f"🧪 <b>Debug Report</b>\n🕒 {now}"]
 
-🕒 {now}
-    """
-    
-    send_telegram(message)
+    for name, url in URLS.items():
+        parts.append(test_url(name, url))
+
+    # تلگرام محدودیت طول پیام دارد؛ پیام را چند قسمت می‌کنیم
+    full = "\n--------------------\n".join(parts)
+
+    max_len = 3500
+    for i in range(0, len(full), max_len):
+        send_telegram(full[i:i + max_len])
