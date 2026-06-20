@@ -118,7 +118,7 @@ def extract_price_near_current_label(html):
         if index == -1:
             continue
 
-        part = text[index:index + 400]
+        part = text[index:index + 500]
         matches = re.findall(r"[\d,]{5,}", part)
 
         for item in matches:
@@ -132,6 +132,7 @@ def extract_price_near_current_label(html):
 
 def extract_first_reasonable_price(html, min_value, max_value):
     html = english_digits(html)
+
     matches = re.findall(r'>([\d,]{5,})<', html)
 
     for item in matches:
@@ -145,6 +146,7 @@ def extract_first_reasonable_price(html, min_value, max_value):
 
     text = clean_html_text(html)
     text = english_digits(text)
+
     matches = re.findall(r"[\d,]{5,}", text)
 
     for item in matches:
@@ -231,6 +233,11 @@ def format_change(current, previous):
     if previous is None:
         return " 🆕"
 
+    try:
+        previous = int(previous)
+    except Exception:
+        return " 🆕"
+
     diff = current - previous
 
     if diff == 0:
@@ -274,16 +281,6 @@ def save_current_prices(prices):
     except Exception as e:
         print("Could not save current prices")
         print("Exception:", repr(e))
-
-
-def prices_changed(current, previous):
-    keys = ["dollar", "tether", "gold", "silver"]
-
-    for key in keys:
-        if current.get(key) != previous.get(key):
-            return True
-
-    return False
 
 
 def get_tether_price_rial(dollar_rial):
@@ -350,14 +347,6 @@ def main():
     print("Previous prices:", previous_prices)
     print("Current prices:", current_prices)
 
-    changed = prices_changed(current_prices, previous_prices)
-
-    save_current_prices(current_prices)
-
-    if not changed:
-        print("No price change detected. Telegram message will not be sent.")
-        return
-
     dollar_text = format_toman_value(current_prices.get("dollar"))
     tether_text = format_toman_value(current_prices.get("tether"))
     gold_text = format_toman_value(current_prices.get("gold"))
@@ -367,6 +356,8 @@ def main():
     tether_change = format_change(current_prices.get("tether"), previous_prices.get("tether"))
     gold_change = format_change(current_prices.get("gold"), previous_prices.get("gold"))
     silver_change = format_change(current_prices.get("silver"), previous_prices.get("silver"))
+
+    save_current_prices(current_prices)
 
     now = get_iran_time()
 
