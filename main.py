@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHANNEL_ID")
@@ -13,68 +13,158 @@ HEADERS = {
     "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-URLS = {
+TGJU_URLS = {
     "dollar": "https://www.tgju.org/profile/price_dollar_rl",
     "gold": "https://www.tgju.org/profile/geram18",
     "silver": "https://www.tgju.org/profile/silver",
 }
 
-PATTERNS = [
-    r'<span[^>]*class="value"[^>]*>([\d,]+)</span>',
-    r'"last_price":"?([\d,]+)"?',
-    r'"p":"?([\d,]+)"?',
-    r'"price":"?([\d,]+)"?',
-    r'>([\d,]{5,})<',
+# چون نوبیتکس روی GitHub resolve نمی‌شود، برای تتر چند مسیر جایگزین تست می‌کنیم.
+# اگر هیچ‌کدام جواب نداد، تتر را برابر دلار آزاد می‌گذاریم.
+TETHER_URLS = [
+    "https://www.tgju.org/profile/crypto-tether",
+    "https://www.tgju.org/profile/tether",
+    "https://www.tgju.org/profile/usdt",
+    "https://www.tgju.org/profile/USDT",
 ]
+
+
+def english_digits(text):
+    """
+    تبدیل اعداد فارسی/عربی به انگلیسی برای پردازش راحت‌تر
+    """
+    if text is None:
+        return ""
+
+    fa = "۰۱۲۳۴۵۶۷۸۹"
+    ar = "٠١٢٣٤٥٦٧٨٩"
+    en = "0123456789"
+
+    for f, e in zip(fa, en):
+        text = text.replace(f, e)
+
+    for a, e in zip(ar, en):
+        text = text.replace(a, e)
+
+    return text
+
+
+def to_persian_digits(text):
+    """
+    تبدیل اعداد انگلیسی به فارسی برای نمایش زیباتر در تلگرام
+    """
+    text = str(text)
+    en = "0123456789"
+    fa = "۰۱۲۳۴۵۶۷۸۹"
+
+    for e, f in zip(en, fa):
+        text = text.replace(e, f)
+
+    return text
+
+
+def extract_first_price_from_html(html):
+    """
+    طبق دیباگی که از GitHub گرفتی، عدد اول با الگوی زیر قیمت فعلی است.
+    مثال:
+    1,620,000
+    161,478,000
+    """
+    html = english_digits(html)
+
+    matches = re.findall(r'>([\d,]{5,})<', html)
+
+    if not matches:
+        return None
+
+    for item in matches:
+        clean = item.replace(",", "").strip()
+
+        if not clean.isdigit():
+            continue
+
+        value = int(clean)
+
+        # حذف عددهای خیلی کوچک یا بی‌ربط
+        if value < 10000:
+            continue
+
+        return value
+
+    return None
+
+
+def get_tgju_price_rial(url):
+    """
+    دریافت قیمت ریالی از صفحه HTML سایت TGJU
+    """
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=30)
+
+        print("URL:", url)
+        print("Status:", response.status_code)
+        print("Length:", len(response.text))
+
+        if response.status_code != 200:
+            return None
+
+        return extract_first_price_from_html(response.text)
+
+    except Exception as e:
+        print("Error fetching:", url)
+        print("Exception:", repr(e))
+        return None
+
+
+def format_toman(price_rial):
+    """
+    تبدیل ریال به تومان و فرمت سه‌رقمی
+    """
+    if price_rial is None:
+        return "دریافت نشد"
+
+    toman = int(price_rial / 10)
+    formatted = f"{toman:,}"
+    return to_persian_digits(formatted)
+
+
+def get_tether_price_rial(dollar_rial=None):
+    """
+    تلاش برای دریافت تتر از صفحات احتمالی TGJU.
+    اگر نشد، چون نوبیتکس از GitHub قابل resolve نیست، تتر را تقریباً برابر دلار آزاد می‌گذاریم.
+    """
+    for url in TETHER_URLS:
+        price = get_tgju_price_rial(url)
+
+        if price:
+            # فیلتر تقریبی برای جلوگیری از گرفتن عددهای پرت
+            # تتر/دلار معمولاً در محدوده چندصد هزار تا چند میلیون ریال است.
+            if 100000 <= price <= 5000000:
+                return price, False
+
+    # fallback
+    if dollar_rial:
+        return dollar_rial, True
+
+    return None, False
+
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    resp = requests.post(url, data={"chat_id": CHAT_ID, "text": text}, timeout=20)
-    print("Telegram status:", resp.status_code)
-    print("Telegram response:", resp.text)
 
-def inspect_page(name, url):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=30)
-        text = r.text
+    response = requests.post(
+        url,
+        data={
+            "chat_id": CHAT_ID,
+            "text": text,
+        },
+        timeout=20
+    )
 
-        lines = [
-            f"{name}",
-            f"Status: {r.status_code}",
-            f"Length: {len(text)}",
-        ]
+    print("Telegram status:", response.status_code)
+    print("Telegram response:", response.text)
 
-        found_any = False
-        for i, pattern in enumerate(PATTERNS, start=1):
-            matches = re.findall(pattern, text)
-            uniq = []
-            for m in matches:
-                if m not in uniq:
-                    uniq.append(m)
-            uniq = uniq[:5]
-            if uniq:
-                found_any = True
-                lines.append(f"Pattern {i}: {uniq}")
 
-        # چند کلمه کلیدی مهم را هم چک می‌کنیم
-        keywords = ["value", "price", "current", "last", "geram18", "price_dollar_rl", "silver"]
-        present = [k for k in keywords if k in text]
-        lines.append(f"Keywords: {present[:10]}")
-
-        if not found_any:
-            lines.append("No numeric matches found with current patterns")
-
-        return "\n".join(lines)
-
-    except Exception as e:
-        return f"{name}\nERROR: {repr(e)}"
-
-if __name__ == "__main__":
-    now = datetime.utcnow().strftime("%Y/%m/%d %H:%M:%S UTC")
-    report = [f"TGJU HTML Inspect\nTime: {now}\n"]
-
-    for name, url in URLS.items():
-        report.append(inspect_page(name, url))
-        report.append("-" * 20)
-
-    send_telegram("\n".join(report)[:3900])
+def get_iran_time():
+    """
+    زمان ایران: UTC+3:30
