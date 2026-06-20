@@ -8,17 +8,21 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - run: pip install requests
-
-      - run: python main.py
+      
+      - name: Run every minute for 5 minutes
+        run: |
+          for i in {1..5}
+          do
+            echo "Execution $i"
+            python main.py
+            sleep 60
+          done
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
