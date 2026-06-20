@@ -1,20 +1,9 @@
 import requests
-import json
 import os
 import re
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHANNEL_ID")
-
-PRICE_FILE = "previous_prices.json"
-
-
-def extract_price(html, key):
-    pattern = rf'data-market-names="{key}".*?data-last-price="([\d,]+)"'
-    m = re.search(pattern, html)
-    if m:
-        return m.group(1)
-    return None
 
 
 def get_prices():
@@ -22,33 +11,17 @@ def get_prices():
     r = requests.get(url, timeout=20)
     html = r.text
 
-    prices = {}
+    def find(pattern):
+        m = re.search(pattern, html)
+        if m:
+            return m.group(1)
+        return "نامشخص"
 
-    markets = {
-        "price_dollar_rl": "dollar",
-        "price_geram18": "gold18",
-        "price_bitcoin": "bitcoin",
-        "price_tether": "tether"
-    }
+    dollar = find(r"price_dollar_rl.*?(\d[\d,]+)")
+    gold = find(r"price_geram18.*?(\d[\d,]+)")
+    bitcoin = find(r"price_bitcoin.*?(\d[\d,]+)")
 
-    for key, name in markets.items():
-        p = extract_price(html, key)
-        if p:
-            prices[name] = p
-
-    return prices
-
-
-def load_previous():
-    if os.path.exists(PRICE_FILE):
-        with open(PRICE_FILE) as f:
-            return json.load(f)
-    return {}
-
-
-def save_prices(prices):
-    with open(PRICE_FILE, "w") as f:
-        json.dump(prices, f)
+    return dollar, gold, bitcoin
 
 
 def send_telegram(text):
@@ -62,44 +35,19 @@ def send_telegram(text):
     requests.post(url, data=data)
 
 
-def build_message(new, old):
-    names = {
-        "dollar": "💵 دلار",
-        "gold18": "🥇 طلا ۱۸",
-        "bitcoin": "₿ بیتکوین",
-        "tether": "💲 تتر"
-    }
-
-    msg = "📊 بروزرسانی قیمت بازار\n\n"
-    changed = False
-
-    for k, v in new.items():
-
-        if k not in old:
-            msg += f"{names[k]} : {v} 🆕\n"
-            changed = True
-
-        elif old[k] != v:
-            msg += f"{names[k]} : {v} 🔄\n"
-            changed = True
-
-    if changed:
-        return msg
-
-    return None
-
-
 def main():
 
-    new_prices = get_prices()
-    old_prices = load_previous()
+    dollar, gold, bitcoin = get_prices()
 
-    message = build_message(new_prices, old_prices)
+    message = f"""
+📊 قیمت لحظه‌ای بازار
 
-    if message:
-        send_telegram(message)
+💵 دلار: {dollar}
+🥇 طلا ۱۸: {gold}
+₿ بیتکوین: {bitcoin}
+"""
 
-    save_prices(new_prices)
+    send_telegram(message)
 
 
 if __name__ == "__main__":
