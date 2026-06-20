@@ -53,7 +53,7 @@ def send_telegram(text):
 
 
 def build_message(new, old):
-    msg = "📊 بروزرسانی قیمت بازار\n\"
+    msg = "📊 بروزرسانی قیمت بازار\n\n"
 
     names = {
         "dollar": "💵 دلار",
@@ -64,4 +64,24 @@ def build_message(new, old):
     for k in new:
         if k not in old:
             msg += f"{names[k]} : {new[k]} 🆕\n"
-        else
+        else:
+            if new[k] != old[k]:
+                msg += f"{names[k]} : {new[k]} 🔄\n"
+
+    return msg
+
+
+def main():
+    new_prices = get_prices()
+    old_prices = load_previous()
+
+    message = build_message(new_prices, old_prices)
+
+    if message.strip() != "📊 بروزرسانی قیمت بازار":
+        send_telegram(message)
+
+    save_prices(new_prices)
+
+
+if __name__ == "__main__":
+    main()
